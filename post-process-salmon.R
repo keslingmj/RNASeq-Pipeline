@@ -1,16 +1,10 @@
 #!/usr/bin/env Rscript
 
-# post-processing salmon run
 # post-process-salmon.R
 # this command is called from a bash script running in a particular location
 # relative to the main directory of data
-#setwd("/Users/mjk/Desktop/Tresorit_iOS/projects/RNA-Seq/upstreamRNASeq/workflow")
 
-# I need tc -> gene mapping file which will be in stringtie_merged.gtf file
-
-# I need TMM function
-
-# I need flags for doing gene-level quant and for using TMM function or not
+# Michael Kesling, 2019-11-27
 
 
 require(data.table)
