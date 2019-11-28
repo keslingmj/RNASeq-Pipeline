@@ -17,6 +17,7 @@ require(data.table)
 require(magrittr)
 require(dplyr)
 require(plyr)
+library(tibble)
 
 
 ###############
@@ -29,11 +30,10 @@ geneLevel = args[1]
 ###############
 #  FUNCIONS:
 
-initializeDF <- function(df, colName1=NA){
+initializeDF <- function(df){  
    j = ncol(df) - 1
-   colClasses <- c("character", rep("numeric", j))
-   if(is.na(colName1)){col.names <- colnames(df)}
-   else{col.names <- c(colName1, colnames(df)[2:ncol(df)])}
+   colClasses <- rep("numeric", ncol(df))
+   col.names <- colnames(df)
    tmpDF <- read.table(text="",
                        colClasses=colClasses,
                        col.names = col.names,
@@ -48,7 +48,7 @@ grabName <- function(string){
 
 processFields <- function(annotID){
    # maps each transcript ID to a gene name, if available.
-   # if not, then maps it to the gene id.
+   # if not, then maps it to the gene id. Uses stringtie_merged.gtf column 9 as input
    lookup <- data.frame(tc="", gene="")
    for(line in annotID){
       flds <- unlist(strsplit(line, ";"))
@@ -57,10 +57,8 @@ processFields <- function(annotID){
       if(!is.na(flds[3])){
          gene_name <- gsub("\"$","",gsub(" gene_name \"","",flds[3]))
          lookup <- rbind.fill(lookup, data.frame(tc=tc_id, gene=gene_name))
-         #print(c(gene_id, tc_id, gene_name))
       }
       else{
-         #print(c(gene_id, tc_id))
          lookup <- rbind.fill(lookup, data.frame(tc=tc_id, gene=gene_id))
       }
    }
@@ -75,98 +73,55 @@ processFields <- function(annotID){
 quantFiles <- readLines("salmonQfiles.txt")
 
 # initialize df with first quantFile:
-df <- read.csv(quantFiles[1], header=TRUE, stringsAsFactors = FALSE, sep="\t")[c("Name", "TPM")]
-colnames(df) <- c("Name", grabName(quantFiles[1]))
+df <- read.table(quantFiles[1], header=TRUE, stringsAsFactors = FALSE, sep="\t", row.names=1)["TPM"]
+colnames(df) <- grabName(quantFiles[1])
 
 # extend df
 for(file in quantFiles[2:length(quantFiles)]){
-   quant <- read.csv(file, header=TRUE, stringsAsFactors = FALSE, sep="\t")[c("Name", "TPM")]
-   if(any(quant$Name != df$Name)) stop("Transcript Names don't align")
+   quant <- read.csv(file, header=TRUE, stringsAsFactors = FALSE, sep="\t", row.names=1)["TPM"]
+   if(any(rownames(quant) != rownames(df))) stop("Transcript Names don't align")
    else{
       df <- cbind(df, quant$TPM)
-      colnames(df)[dim(df)[2]] <- grabName(file)
+      colnames(df)[ncol(df)] <- grabName(file)
    }
 }
 
-
-
-# gene-level?
+# gene-level summation of TPMs here
 # mapping transcript_id to (a) gene_name or (b) gene_id if (a) doesn't exist
 if(!is.na(geneLevel)){
    mergedGTF <- fread("stringtie_merged.gtf", sep="\t", skip=2)
    mergedGTF <- mergedGTF %>% filter(V3=="transcript")
    tc2gene <- processFields(mergedGTF$V9)
-   GeneData <- initializeDF(df, colName1 = "Gene")
-   #GeneData <- data.frame(Gene=character(), ERR188044_chrX=numeric(), 
-   #                       ERR188104_chrX=numeric())
-   # for each gene, grab all TPMs for various Tcs and sum, creating DF
+   GeneData <- initializeDF(df)
+   
+   # for each gene, grab all TPMs for various Tcs and sum, creating gd DF
+   # and add to growing GeneData DF
+   geneNames <- c()
    for(Gene in unique(tc2gene$gene)){
       if(Gene==""){next}
-      print(Gene)
       rows <- tc2gene %>% filter(gene==Gene)
-      Tc_data <- df %>% filter(Name %in% rows$tc)
-      print(Tc_data)
-      print(c("dim Tc_data", dim(Tc_data)))
+      Tc_data <- df %>% rownames_to_column('Name') %>%
+         filter(Name %in% rows$tc) %>% column_to_rownames('Name')
       
-      #print(rows)
-      #Tc_data <- initializeDF(df)
-      #<- data.frame(Name=NA, ERR188044_chrX=NA, ERR188104_chrX=NA)
-### AUTOMATE PREVIOUS STATEMENT OF DEFINING COLNAMES
-      # for(tc in rows$tc){
-      #    # grab data from 'df' that match tc
-      #    tmp <- df %>% filter(Name==tc)
-      #    names(tmp) <- names(df)
-      #    Tc_data <- rbind(Tc_data, tmp)
-      #    print(head(Tc_data))
-      #    print(class(Tc_data[1,2]))
-      #    print(class(Tc_data[1,1]))
-      #    #Tc_data <- rbind(Tc_data, df %>% filter(Name==tc))
-      # }
-      # skip lines that are empty:
-      #if(nrow(Tc_data) > 1){
-      gd <- c(Gene, apply(Tc_data[,2:ncol(Tc_data)], 2, sum))
-      names(gd)[1] <- "Gene"
-      print(c("dimensions gd", dim(gd)))
-      #colnames(gd) <- colnames(GeneData)
-      print(head(gd))
-      #print(class(gd[1,2]))
-      GeneData <- rbind(GeneData, gd, stringsAsFactors=F)
-     # }
-      #else{
-         # print(c(data, "***"))
-      #}
+      gd <- apply(Tc_data, 2, sum)
+      names(gd) <- colnames(Tc_data)
+      
+      GeneData <- rbindlist(list(GeneData, as.list(gd)))          # (data.table)
+      geneNames <- c(geneNames, Gene)
    }
+   # convert GeneData to dataframe, then add rownames
+   GeneData <- as.data.frame(GeneData)
+   rownames(GeneData) <- geneNames
 }
-GeneDataDF <- cbind(GeneData[,1], data.frame(apply(GeneData[,2:dim(GeneData)[2]],
-                                                   2, as.numeric)))
-# filter out NA's
-GeneDataDF <- GeneDataDF %>% filter(!is.na(GeneDataDF[,2]))
+
+###########
+# write file to file system
+write.table(GeneData, "salmonTPMmerged.txt", sep="\t", row.names = T,
+            col.names = NA)         # NA needed for offsetting col names in unix
+
 
 
 if(is.na(geneLevel)){                       # return Tc-level df
-   
+   # code not yet written
+   return("MUST USE 'TRUE' option, as only gene-level expression currently supported")
 }
-
-
-# test code
-# I want to automatically create empty dataframes with defined column names
-# the first name will be user-inputted and all others will be read, ultimately
-# from salmonQfiles.txt.  The first class will be character and all others will
-# be numeric
-colnames(df)
-#catString = paste0(colnames(df)[1], "=character()")
-#for(name in colnames(df)[2:dim(df)[2]]){
-#   catString <- paste0(catString, ", ", name, "=numeric()")
-#}
-#catString <- paste0(catString, ", stringsAsFactors=FALSE")
-#df2 <- data.frame(eval(catString))
-
-
-
-
-tmp <- list("Sam", 18, 14)
-names(tmp) <- names(df5)
-rbind(df5, tmp)
-
-
-

@@ -209,14 +209,14 @@ for ((i=0; i<=${#reads1[@]}-1; i++ )); do
 						    -p $NUMCPUS --validateMappings -o salmonQuants/${sample}.quant
 done
 
-# MORE EASILY WRITTEN IN R
+
 ###############
-# Place transcript-level TPM for every quant.sf file and put everything
+# Sum transcript-level TPM for every quant.sf file to create gene-level TPMs and put everything
 # into a single matrix.
+echo [`date +"%Y-%m-%d %H:%M:%S"`] "#> Merging Salmon TPM values at gene levels for all samples "
+
 cat hisat2/mergelist.txt | sed 's/.*.\//salmonQuants\//g' | sed 's/gtf$/quant\/quant.sf/' > salmonQfiles.txt
-# salmonQ is an array of quant.sf files
-# should loop through them, grab sampleName and TPM column
-# sampleName=$(echo ${salmonQ[1]} | sed 's/salmonQuants\///' | sed 's/\..*//g')
+Rscript post-process-salmon.R TRUE
 
 
 }
