@@ -14,4 +14,5 @@ This pipeline has 2 files.  The [pipeline.sh](pipeline.sh) is a bash script that
 11. [post-process-salmon.R](post-process-salmon.R) is run to gather TPM levels across all salmon quant.sf files and sum across transcripts of the same gene.
 
 This pipeline is a modified version of one written by the Perteas in the Salzberg lab.
-In order to run the pipeline, it is assumed that there exists the following directory structure containing the following files.
+In order to run the pipeline, it is assumed that there exists the following directory structure containing certain files.
+One also uses the [CONFIG.sh](CONFIG.sh) file to set a lot of the hard-coded parameters.  
